@@ -1,0 +1,783 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+%\usepackage[onEveryPage]{coffee}
+%-------------------- 字型 --------------------
+\usepackage{xeCJK}
+\setCJKmainfont{標楷體-繁}[
+  BoldFont={標楷體-繁},
+  ItalicFont={標楷體-繁},
+  SlantedFont={標楷體-繁}
+]
+
+\setmainfont{Times New Roman}[
+  BoldFont={Times New Roman Bold},
+  ItalicFont={Times New Roman Italic},
+  BoldItalicFont={Times New Roman Bold Italic}
+]
+
+\renewcommand{\scshape}{\relax}
+\DeclareFontShape{TU}{TimesNewRoman(0)}{m}{sc}{<->ssub * TimesNewRoman(0)/m/n}{}
+\DeclareFontShape{TU}{標楷體-繁(0)}{m}{sc}{<->ssub * 標楷體-繁(0)/m/n}{}
+
+%-------------------- 套件 --------------------
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{csquotes}
+\usepackage{booktabs} % for \toprule, \midrule, \bottomrule
+\usepackage{placeins} % for \FloatBarrier
+
+%-------------------- 段落設定 --------------------
+\setlength{\parindent}{2em}  % 中文段首空兩個全形字
+
+
+
+%-------------------- biblatex --------------------
+\usepackage[backend=biber,style=ieee,maxnames=99]{biblatex}
+\addbibresource{DSP_Final_Report.bib} 
+%   biber DSP_Final_Report
+
+
+
+% 程式出Bug了？
+% 　　　∩∩
+% 　　（´･ω･）
+% 　 ＿|　⊃／(＿＿_
+% 　／ └-(＿＿＿／
+% 　￣￣￣￣￣￣￣
+% 算了反正不是我寫的 
+% 　　 ⊂⌒／ヽ-、＿
+% 　／⊂_/＿＿＿＿ ／
+% 　￣￣￣￣￣￣￣
+% 萬一是我寫的呢？
+% 　　　∩∩
+% 　　（´･ω･）
+% 　 ＿|　⊃／(＿＿_
+% 　／ └-(＿＿＿／
+% 　￣￣￣￣￣￣￣
+% 算了反正改了一個又出三個 
+% 　　 ⊂⌒／ヽ-、＿
+% 　／⊂_/＿＿＿＿ ／
+% 
+
+
+
+
+
+%-------------------- 文件開始 --------------------
+\begin{document}
+
+\title{基於 Wiener Filter 與 NLMS 自適應濾波器之語音降噪與回音消除系統實作}
+
+\author{
+\IEEEauthorblockN{王子晨}
+\IEEEauthorblockA{\textit{國立臺灣科技大學 自動化及控制研究所}\\
+學號：M11412013}
+}
+
+\maketitle
+
+\begin{abstract}
+此報告旨在探討並實作數位訊號處理中關鍵的語音增強與回音消除技術。
+研究分為兩大主軸，首先利用 Wiener Filter 進行語音降噪，透過先驗訊雜的估測，在頻域中抑制背景雜訊，並針對不同雜訊類型進行 SSNRI效能評估。
+並針對空間回音問題，本研究利用房間脈衝響應產生器模擬真實聲學環境，並透過 Z 轉換 (Z-Transform) 分析通道的極零點分佈與頻率響應特性。
+最終比較最小均方演算法 (LMS) 與 正規化最小均方演算法 (NLMS) 在自適應濾波中的收斂效能。
+實驗結果顯示，Wiener Filter 對平穩態雜訊有顯著改善，而 NLMS 演算法在回音消除的收斂速度與穩定性上均優於傳統 LMS，且能精確識別未知的聲學通道模型。
+
+\end{abstract}
+%-------------------- 題目與文獻資訊 --------------------
+\section{參考核心論文}
+\begin{itemize}
+    \item 論文名稱：Speech enhancement based on a priori signal to noise estimation \cite{Scalart1996SpeechEB}
+    \item 論文出處：IEEE International Conference on Acoustics, Speech, and Signal Processing (ICASSP), Atlanta, GA, USA, 1996, pp. 629-632.
+    \item 作者：P. Scalart and J. V. Filho
+    \item 年份：1996
+\end{itemize}
+
+\section{Introduction}
+
+\subsection{研究目的}
+在現代通訊系統與語音識別應用中，環境背景雜訊與空間回音是影響訊號品質的兩大主因。
+背景雜訊會降低語音的可懂度，而回音則會造成通話干擾與識別率下降。此報告之核心目的在於：
+
+\begin{enumerate}
+    \item 實作語音降噪系統：利用統計訊號處理技術（Wiener Filter）還原受汙染的語音。
+    \item 聲學通道特性分析：透過 Z 轉換深入探討房間脈衝響應 (RIR) 的物理特性（穩定性、相位特性）。
+    \item 自適應回音消除：實作 LMS 與 NLMS 濾波器，比較其在動態環境下的系統識別能力與收斂特性。
+\end{enumerate}
+
+\subsection{相關技術介紹}
+傳統的濾波器（如 Low-pass filter）無法有效分離頻譜重疊的語音與雜訊。
+此報告的降噪系統核心演算法係參考自 Scalart 與 Filho 於 1996 年發表的經典論文《Speech enhancement based on a priori signal to noise estimation》\cite{Scalart1996SpeechEB}。
+傳統的頻譜減去法 (Spectral Subtraction) 在估測雜訊時容易產生殘留的「音樂雜訊 (Musical Noise)」，這是一種聽覺上非常刺耳的人造雜訊。
+Scalart 等人提出了一種基於先驗訊雜比 (A priori SNR) 的 Wiener Filter 改良架構，基於最小均方誤差 (MMSE) 準則，利用訊號與雜訊的功率頻譜密度 (PSD) 差異進行分離。
+此報告即以此技術為基礎，實作語音降噪模組。
+回音消除 (Echo Cancellation) 是通訊系統中的重要課題，尤其在語音通話與會議系統中尤為關鍵。
+
+然而，面對未知的時變系統，固定係數的濾波器無法勝任。
+此報告將自適應濾波器串聯於 Wiener Filter 系統中。
+這使得系統不僅能消除加性雜訊 (Additive Noise)，還能同時處理卷積性干擾 (Convolutive Interference，即回音)，構建了更完整的通訊語音前端處理系統。
+自適應濾波器透過遞迴演算法（如 LMS、NLMS）動態調整權重，使其能即時追蹤並抵消未知的回音路徑，是目前解決回音問題的主流技術。
+
+
+\section{Methods}
+此研究提出一套整合語音增強與回音消除的數位訊號處理系統。
+系統架構分為三個主要階段：訊號前處理與降噪（Wiener Filter）、聲學通道模擬（RIR Generator）、以及自適應回音消除（Adaptive Filtering）。
+以下詳述各階段之數學原理與演算法實作細節。
+
+\subsection{基於Decision-Directed方法之Wiener Filter語音降噪}
+
+傳統的 Wiener Filter 旨在最小化估測訊號$\hat{x}[n]$與原始訊號$x[n]$之間的均方誤差 (Mean Square Error, MSE)。
+在頻域中，其增益函數$G(\omega)$取決於先驗訊雜比 (A priori SNR)。
+此研究採用Decision-Directed (DD) 方法來估測先驗 SNR，以有效減少傳統頻譜減去法產生的音樂雜訊 (Musical Noise)。
+
+假設含噪訊號 $y[n]=x[n]+d[n]$，其短時距傅立葉轉換 (STFT) 表示如Eq.(\ref{eq:1})所示。
+
+\begin{equation}
+    \begin{aligned}
+        Y(k, m) = X(k, m) + D(k, m)
+    \end{aligned}
+\label{eq:1}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+其中 $k$ 為頻率索引，$m$ 為時間幀索引。Wiener Filter的增益函數 $G(k,m)$ 定義如Eq.(\ref{eq:2})所示。
+
+\begin{equation}
+    \begin{aligned}
+        G(k, m) = \frac{\xi(k, m)}{\xi(k, m) + 1}
+    \end{aligned}
+\label{eq:2}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+其中 $\xi(k, m)$ 為先驗訊雜比 (A priori SNR)，定義如Eq.(\ref{eq:3})。  
+
+\begin{equation}
+    \begin{aligned}
+         \xi(k, m) = \frac{E[|X(k, m)|^2]}{E[|D(k, m)|^2]}
+    \end{aligned}
+\label{eq:3}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+由於 $X(k,m)$ 未知，我們利用遞迴方式估測$\hat{\xi}(k, m)$，定義如Eq.(\ref{eq:4})。
+
+\begin{equation}
+    \begin{aligned}
+         \hat{\xi}(k, m) = \alpha \frac{|\hat{X}(k, m-1)|^2}{\hat{\lambda}_d(k, m)} + (1-\alpha) \max[\gamma(k, m) - 1, 0]
+    \end{aligned}
+\label{eq:4}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+Eq.(\ref{eq:4})中$\hat{X}|(k, m-1)|$為前一幀的估測訊號振幅，$\hat{\lambda}_d(k, m)$為估測之雜訊功率譜密度。
+$\alpha$為平滑因子 (Smoothing Factor)，本實驗設定為 0.98 以保持估測的穩定性。$\gamma(k, m)$為後驗訊雜比 (A posteriori SNR)，定義如Eq.(\ref{eq:5})：
+
+\begin{equation}
+    \begin{aligned}
+         \gamma(k, m) = \frac{|Y(k, m)|^2}{\hat{\lambda}_d(k, m)}
+    \end{aligned}
+\label{eq:5}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+\subsection{房間聲學模型與 Z 轉換特性分析}
+為了模擬真實的室內回音環境，本研究採用鏡像法(Image Method)來計算房間脈衝響應(Room Impulse Response, RIR)，並透過 Z 轉換分析其系統特性。
+
+依照鏡像法原理，假設房間為長方體，聲源 $S$發出的聲音經過牆壁多次反射到達麥克風 $M$。$RIR h[n]$ 可表示為直達波與各階反射波的疊加如Eq.(\ref{eq:6})。
+
+\begin{equation}
+    \begin{aligned}
+        h[t] = \sum_{i} \frac{R^{q_i}}{d_i} \delta(t - \frac{d_i}{c})
+    \end{aligned}
+\label{eq:6}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+其中$d_i$為第 $i$ 條路徑的距離，$c$ 為聲速，$R$為牆壁反射係數 (本實驗設為 0.8)，$q_i$為反射次數。
+將時域的 $h[n]$ 轉換至 Z域以分析通道特性，如Eq.(\ref{eq:7})
+
+\begin{equation}
+    \begin{aligned}
+        H(z) = \sum_{n=0}^{N-1} h[n]z^{-n}
+    \end{aligned}
+\label{eq:7}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+由於 $h[n]$ 為有限長度序列 (FIR)，其所有極點皆位於 z=0 處 (即ROC 為 $|z|>0$)，保證了系統的絕對穩定性。
+回音路徑通常為非最小相位系統 (Non-minimum Phase System)，即部分零點位於單位圓外 $(|z_k|>1)$。
+這意味著其逆系統 (Inverse System) $1/H(z)$ 將包含不穩定的極點，因此無法透過直接反卷積來消除回音，必須採用自適應濾波技術。
+
+\subsection{自適應濾波演算法}
+本研究實作並比較了 LMS 與 NLMS 兩種演算法，用於即時估測 RIR 並消除回音。
+
+\subsubsection{最小均方演算法 (LMS Algorithm)}
+LMS 旨在最小化瞬時平方誤差 $J(n)=e^{2}[n]$，其中誤差信號 $e[n]$ 為期望訊號 $d[n]$ 與濾波器輸出 $y[n]$ 之差如Eq.(\ref{eq:8})所示。
+而權重更新遵循最陡下降法Eq.(\ref{eq:9})。
+
+\begin{equation}
+    \begin{aligned}
+        e[n] = d[n] - \mathbf{w}^T[n]\mathbf{x}[n]
+    \end{aligned}
+\label{eq:8}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+\begin{equation}
+    \begin{aligned}
+        \mathbf{w}[n+1] = \mathbf{w}[n] + \mu e[n]\mathbf{x}[n]
+    \end{aligned}
+\label{eq:9}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+其中$\mu$為步階因子。LMS 計算量低，但其收斂速度受輸入訊號自相關矩陣$R_{xx}$ 的特徵值分布影響，且過大的$\mu$會導致發散。
+
+\subsubsection{正規化最小均方演算法 (Normalized LMS, NLMS)}
+為解決語音訊號能量波動劇烈導致 LMS 收斂不穩定的問題，NLMS 將步階因子隨輸入訊號功率進行正規化，方法如Eq.(\ref{eq:10})。
+
+\begin{equation}
+    \begin{aligned}
+        \mathbf{w}[n+1] = \mathbf{w}[n] + \frac{\mu}{\epsilon + ||\mathbf{x}[n]||^2} e[n]\mathbf{x}[n]
+    \end{aligned}
+\label{eq:10}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+在Eq.(\ref{eq:10})中$||\mathbf{x}[n]||^2 = \mathbf{x}^T[n]\mathbf{x}[n]$為輸入訊號向量的歐幾里得範數平方，即瞬時功率。
+$\epsilon $為微小常數，防止分母為零。
+NLMS 提供了更穩健的收斂特性，特別適用於語音這類非平穩態訊號的處理。
+
+\subsection{效能評估指標}
+採用以下量化指標評估系統效能：
+
+\subsubsection{分段訊雜比改善度 (SSNRI)}
+由於語音是非平穩訊號，全域 SNR 無法反映局部品質。計算每幀 (Frame) 的 SNR 並取平均，公式如Eq.(\ref{eq:11})。
+
+\begin{equation}
+    \begin{aligned}
+        \text{SSNR} = \frac{1}{M} \sum_{m=0}^{M-1} 10 \log_{10} \left( \frac{\sum_{n} x^2[n]}{\sum_{n} (x[n] - \hat{x}[n])^2} \right)
+    \end{aligned}
+\label{eq:11}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+SSNRI 即為處理後 SSNR 與處理前 SSNR 之差 。
+
+\subsubsection{均方誤差 (MSE)}
+用於評估自適應濾波器的收斂精度與速度，公式如Eq.(\ref{eq:12})。
+
+\begin{equation}
+    \begin{aligned}
+        \text{MSE}[n] = 10 \log_{10}(e^2[n])
+    \end{aligned}
+\label{eq:12}
+%Eq.(\ref{eq:4})
+\end{equation}
+
+透過觀察 MSE 的下降曲線，可直接比較 LMS 與 NLMS 的收斂速率。
+
+\section{Results}
+
+\subsection{Wiener Filter 降噪效能分析}
+首先探討 Wiener Filter 在不同雜訊環境下的降噪能力。
+為了量化評估效能，本研究採用分段訊雜比改善度 (SSNRI, Segmental SNR Improvement) 作為指標。
+實驗對 10 段不同的語音訊號進行測試，結果統整如TABLE \ref{tab:noise_comparison_avg}所示。數據基於程式碼運算結果整理，Mouse 雜訊在部分高 SNR 情況下出現負值代表訊號失真
+
+\begin{table}[htbp]
+    \caption{Comparison of different noise ratios (不同雜訊比之比較)}
+
+    \begin{center}
+        \begin{tabular}{lcccccc}
+            \toprule
+            & \multicolumn{2}{c}{\textbf{horn}} & \multicolumn{2}{c}{\textbf{mouse}} & \multicolumn{2}{c}{\textbf{white noise}} \\
+            \cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7}
+            \textbf{SNR} & \textbf{10dB} & \textbf{50dB} & \textbf{10dB} & \textbf{50dB} & \textbf{10dB} & \textbf{50dB} \\
+            \midrule
+            1.wav  & 5.95 & 6.57 & -0.81 & 2.25 & 34.96 & 24.85 \\
+            2.wav  & 5.64 & 4.66 & -0.66 & 2.03 & 35.00 & 24.94 \\
+            3.wav  & 5.51 & 4.37 & -1.27 & 1.93 & 31.58 & 17.69 \\
+            4.wav  & 6.97 & 4.56 & -1.44 & -0.63 & 32.11 & 20.17 \\
+            5.wav  & 6.87 & 3.39 & -1.21 & 2.09 & 30.74& 17.75 \\
+            6.wav  & 8.50 & 4.04 & -1.85 & -1.32 & 28.74 & 15.59 \\
+            7.wav  & 6.25 & 3.20 & -1.21 & 0.35 & 30.18 & 17.32 \\
+            8.wav  & 6.33 & 5.96 & -1.19 & 1.04 & 32.35 & 19.98 \\
+            9.wav  & 7.21 & 2.33 & -1.74 & -1.23 & 30.42 & 16.43 \\
+            10.wav & 5.71 & 5.27 & -0.92 & 4.41 & 32.85 & 21.13 \\
+            \midrule
+            \textbf{平均} & \textbf{6.4990} & \textbf{4.4417} & \textbf{-1.2357} & \textbf{1.0958} & \textbf{31.8969} & \textbf{19.5893} \\
+            \bottomrule
+        \end{tabular}
+    \end{center}
+    \label{tab:noise_comparison_avg}
+\end{table}
+
+如TABLE \ref{tab:noise_comparison_avg}所示白雜訊表現最優，在 SNR=10dB 時，平均 SSNRI 高達 30.87 dB。
+這證實了 Wiener Filter 對於平穩態寬頻雜訊具有極佳的抑制能力。
+而喇叭聲表現穩定，無論輸入 SNR 高低，SSNRI 皆維持在 5.5 dB 左右，顯示演算法能穩定濾除特定頻率的干擾，但改善幅度受限於雜訊的頻譜重疊特性。
+滑鼠聲表現最差，在低 SNR (10dB) 時，平均 SSNRI 為 -1.09 dB。負值意味著處理後的語音品質比處理前更差。
+這是因為濾波器將突發的脈衝雜訊誤判，導致增益計算錯誤，不僅沒消除雜訊，反而引入了音樂雜訊或波形失真。
+
+另外進行波形與頻譜圖分析。原始乾淨語音之波形、頻譜圖如fig.\ref{fig:fig_1}、fig.\ref{fig:fig_2}所示。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_1.png}}
+    \caption{原始乾淨語音波形圖}
+    \label{fig:fig_1} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_2.png}}
+    \caption{原始乾淨語音頻譜圖}
+    \label{fig:fig_2} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\FloatBarrier
+
+\subsubsection{喇叭聲降噪分析}
+喇叭聲雜訊屬於週期性訊號，在時域波形中表現為持續的高振幅震盪，在頻譜圖中則呈現明顯的水平亮線，如fig.\ref{fig:fig_8}所示。這代表特定頻率的高能量集中。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_11.png}}
+    \caption{喇叭聲波形圖與頻譜圖}
+    \label{fig:fig_11} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+經過 Wiener Filter 處理後，觀察波形圖可見背景的持續震盪已被大幅壓制，語音的波封 (Envelope) 變得清晰。
+如fig.\ref{fig:fig_7}、fig.\ref{fig:fig_8}所示。
+
+頻譜圖顯示水平條紋的能量顯著降低，證明演算法成功識別並抑制了穩態的週期性干擾，且語音的共振峰 (Formant) 結構得以保留。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_7.png}}
+    \caption{喇叭聲去噪前後波形圖}
+    \label{fig:fig_7} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_8.png}}
+    \caption{喇叭聲去噪前後頻譜圖}
+    \label{fig:fig_8} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\FloatBarrier
+
+\subsubsection{滑鼠聲降噪分析}
+滑鼠聲雜訊屬於非平穩態的瞬時脈衝。
+在時域上表現為突發的尖峰，在頻譜圖上則呈現垂直亮線，如fig.\ref{fig:fig_6}所示，代表能量在極短時間內擴散至全頻段。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_10.png}}
+    \caption{滑鼠聲波形圖與頻譜圖}
+    \label{fig:fig_10} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+其降噪效果較不理想。如fig.\ref{fig:fig_3}、fig.\ref{fig:fig_6}所示。
+由於脈衝發生時間極短，Wiener Filter 的 Decision-Directed 演算法在估測先驗訊雜比時具有滯後性，導致無法及時調整增益。
+波形圖中仍可見殘留的尖峰，且頻譜圖顯示部分語音高頻成分因過度平滑而流失。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_3.png}}
+    \caption{滑鼠聲去噪前後波形圖}
+    \label{fig:fig_3} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_6.png}}
+    \caption{滑鼠聲去噪前後頻譜圖}
+    \label{fig:fig_6} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\FloatBarrier
+
+\subsubsection{白雜訊降噪分析}
+
+白雜訊的能量均勻分布於所有頻率。頻譜圖呈現全域的霧狀背景噪聲，嚴重遮蔽了語音細節。如fig.\ref{fig:fig_4}所示。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_9.png}}
+    \caption{白雜訊波形圖與頻譜圖}
+    \label{fig:fig_9} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+這是 Wiener Filter 表現最佳的場景。如fig.\ref{fig:fig_5}、fig.\ref{fig:fig_4}所示。
+降噪後的頻譜圖背景轉為深藍色（低能量），語音特徵清晰浮現。
+因為白雜訊的統計特性穩定，PSD估測準確，使得濾波器能精準計算出最佳增益函數。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_5.png}}
+    \caption{白雜訊去噪前後波形圖}
+    \label{fig:fig_5} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_4.png}}
+    \caption{白雜訊去噪前後頻譜圖}
+    \label{fig:fig_4} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\FloatBarrier
+
+\subsection{房間聲學特性分析}
+
+模擬房間脈衝響應 $h[n]$ 並進行 Z 域與頻域分析，結果如下：
+
+\subsubsection{房間脈衝響應 $h[n]$}
+
+fig.\ref{fig:fig_12}顯示了聲學通道在時域上的特性。訊號在 $n=0$ 後迅速上升，隨後呈現指數衰減的趨勢，並伴隨許多隨機的震盪峰值。
+這些密集的脈衝代表聲音在牆壁、地板與天花板之間經過多次反射後到達麥克風的疊加結果。
+而指數衰減的包絡線反映了牆壁吸收係數對能量的消耗。
+由於脈衝響應在有限時間後趨近於零，這證實了房間聲學模型在數學上可視為一個 FIR 濾波器。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_12.png}}
+    \caption{房間脈衝響應 $h[n]$}
+    \label{fig:fig_12} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\FloatBarrier
+\subsubsection{Z 平面極零點圖}
+
+fig.\ref{fig:fig_13}展示了轉移函數 $H(z)$ 在複數平面上的根分佈。所有的極點 (Poles) 皆重疊並集中於 Z 平面的原點 (0,0)。而零點呈現環狀分佈，且廣泛散佈於單位圓的內側。
+由於所有極點皆位於單位圓內（原點），系統之收斂區間 (ROC) 包含單位圓，故此聲學系統是絕對穩定的。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_13.png}}
+    \caption{Z 平面極零點圖}
+    \label{fig:fig_13} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\FloatBarrier
+\subsubsection{振幅頻譜}
+
+如fig.\ref{fig:fig_14}所示，頻率響應的振幅呈現劇烈的上下波動，並非平坦線條，且有許多深陷的波谷。
+這是由於直達波與滯後的反射波在頻域上發生干涉所致。當反射波與直達波相位相反時，會在特定頻率產生消減，形成波谷；反之，當兩者相位相同時，則會產生增強，形成波峰。
+這種頻率選擇性的響應特性，導致某些頻率成分被強化，而另一些則被抑制，對語音訊號的清晰度與自然度產生顯著影響。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_14.png}}
+    \caption{振幅頻譜圖}
+    \label{fig:fig_14} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\FloatBarrier
+\subsubsection{相位頻譜}
+
+如fig.\ref{fig:fig_14}相位角隨頻率變化呈現極度劇烈且密集的跳動，在 $−\pi$ 到 $\pi$ 之間快速纏繞，看起來幾乎像雜訊一樣隨機。
+這顯示房間聲學通道具有高度的非線性相位特性。
+這意味著訊號中的不同頻率成分在通過房間時，不會保持原有的相對相位關係，導致波形在時域上發生嚴重的扭曲，增加了還原原始語音波形的難度。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_15.png}}
+    \caption{相位頻譜圖}
+    \label{fig:fig_15} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\FloatBarrier
+\subsubsection{Group Delay}
+
+如fig.\ref{fig:fig_14}群延遲定義為相位對頻率的負微分。
+圖中顯示群延遲並非定值，而是在特定頻率處出現巨大的尖峰 (Spikes)，甚至有負值出現。
+群延遲代表各個頻率成分通過系統所需的「時間延遲」。劇烈的波動表示系統存在色散現象，即聲音中的高頻與低頻成分到達麥克風的時間不一致。
+這種時間上的擴散會導致語音的暫態特徵變得模糊，降低語音的可懂度。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_16.png}}
+    \caption{Group Delay}
+    \label{fig:fig_16} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\FloatBarrier
+
+\subsection{自適應濾波器收斂效能比較}
+這部分比較 LMS 與 NLMS 演算法在回音消除任務中的收斂速度與穩定性。
+
+如fig.\ref{fig:fig_17}顯示 LMS 對步階值 $\mu$ 極度敏感。
+當 $\mu$=0.6時，MSE 曲線直接發散 (趨近無限大)，系統不穩定
+最佳步階約在 $\mu$=0.006，能在速度與穩定性間取得平衡。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_17.png}}
+    \caption{LMS MSE 收斂比較}
+    \label{fig:fig_17} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+fig.\ref{fig:fig_18}展示了 NLMS 的優越性。即便使用極大的步階 $\mu$=0.6，MSE 曲線依然能快速且穩定地收斂，這歸功於 NLMS 的正規化項抵消了輸入訊號能量波動的影響。
+在相同 $\mu$=0.006 的條件下，NLMS 的收斂斜率明顯大於 LMS，能在更短時間內消除回音。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_18.png}}
+    \caption{NLMS MSE 收斂比較}
+    \label{fig:fig_18} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+從fig.\ref{fig:fig_19}圖中可見，紅色曲線 (NLMS) 的 MSE 值（約 8 dB）始終低於藍色曲線 (LMS) 的 MSE 值（約 15 dB）。這表示在相同的迭代次數下，NLMS 能達到更低的誤差水準，消除回音的效果更佳。
+而步階因子的影響這是最顯著的差異。
+LMS 必須使用極小的步階 (μ=0.006) 才能維持穩定，若調大則容易發散。
+反觀 NLMS，即使步階設為極大的 0.6 (是 LMS 的 100 倍)，系統依然保持穩定且收斂良好。
+此結果證實了 NLMS 演算法中 「功率正規化 (Power Normalization)」 機制的優越性。
+NLMS 的權重更新公式除以了輸入訊號的能量項 $||x[n]||^2$ ，這使得演算法對於輸入訊號的大小變化具有強健性，克服了傳統 LMS 收斂速度受限於輸入訊號能量的缺點。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_19.png}}
+    \caption{NLMS 與 LMS 收斂比較}
+    \label{fig:fig_19} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+此fig.\ref{fig:fig_20}比較了真實的房間脈衝響應 (True RIR, $h[n]$, 藍色實心點) 與 NLMS 演算法收斂後所估測出的濾波器權重 (Estimated Weights, $w[n]$, 紅色空心點)。
+觀察圖形可見，紅色圓圈幾乎完美地套在藍色實點之上。
+無論是振幅最大的直達波 (Direct Path)，還是後續衰減的早期反射音 (Early Reflections)，NLMS 濾波器都能精準地捕捉到其位置與振幅大小。
+這證明了自適應濾波器不僅僅是在數學上降低了 MSE，更在物理意義上成功識別了未知的聲學通道。
+
+濾波器的係數 $w[n]$ 已經收斂至真實的房間模型 $h[n]$ ($w[n]\thickapprox h[n]$)。這意味著系統產生的「估測回音」將與「真實回音」極度相似，兩者相減後即可將回音完全抵消，達成回音消除的最終目的。
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.4\textwidth]{fig/fig_20.png}}
+    \caption{NLMS濾波器估測權重與真實 RIR 比較}
+    \label{fig:fig_20} 
+    %如fig.\ref{fig:fig_8}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+
+\section{Discussion}
+
+針對實驗結果進行深入探討，主要聚焦於 Wiener Filter 在不同雜訊特性下的極限，以及自適應演算法在穩定性上的關鍵差異。
+
+\subsection{雜訊平穩性對 Wiener Filter 效能之影響}
+
+Wiener Filter 的核心機制是基於頻域上的 訊號功率頻譜密度 (PSD) 估測。實驗數據顯示出顯著的效能差異，其原因分析如下：
+
+\subsubsection{平穩態雜訊的優勢}
+
+對於 White Noise (白雜訊) 與 Horn Noise (喇叭聲)，SSNRI 表現優異（最高達 34.9 dB）。
+這類雜訊的統計特性隨時間變化緩慢。Scalart (1996) 提出的 Decision-Directed (DD) 方法利用平滑因子 $\alpha$來遞迴更新先驗訊雜比。
+在平穩環境下，這種平滑機制能準確收斂至真實的雜訊 PSD，因此算出的增益函數 $G(k)$ 非常精準，能有效濾除雜訊而不損傷語音。
+
+\subsubsection{平穩態雜訊的缺陷}
+
+對於 Mouse Noise (滑鼠聲)，SSNRI 普遍低落，甚至出現負值（-1.09 dB）。
+滑鼠聲屬於 瞬態脈衝 (Transient Impulse)，能量極短且頻譜瞬間擴散。由於 DD 方法具有「記憶性」（依賴前一幀），當突發雜訊出現時，演算法來不及反應，導致增益計算滯後。
+當演算法反應過來降低增益時，脈衝已結束，反而誤傷了後續語音。這導致波形失真與殘留的「音樂雜訊」，證明傳統 Wiener Filter 難以處理快速變動的環境。
+這與 Scalart 論文中提到的限制相符：先驗訊雜比估測法雖然能平滑雜訊，但代價是對瞬態訊號的追蹤能力下降。因為平滑因子 $\alpha$ 造成了增益函數的延遲，導致脈衝發生時增益來不及上升，造成語音起始段的削波 (Clipping) 或雜訊殘留。
+
+\subsection{LMS 與 NLMS 在穩定性上的關鍵差異}
+
+LMS 演算法的收斂性高度依賴於步階因子 $\mu$ 的選擇。實驗結果顯示，當 $\mu$ 過大 (如 0.6) 時，LMS 會發散，無法穩定收斂。這是因為 LMS 的權重更新公式中，步階 $\mu$ 直接乘以輸入訊號 $x[n]$，當 $x[n]$ 能量較大時，更新步伐過大，導致系統不穩定。
+相反地，NLMS 演算法引入了正規化項 $||x[n]||^2$，使得步階 $\mu$ 的實際影響被輸入訊號的能量所調節。這意味著即使 $\mu$ 設定較大，NLMS 仍能根據當前輸入訊號的能量自動調整更新幅度，保持系統穩定。
+此外，NLMS 的收斂速度明顯優於 LMS。在相同的步階條件下，NLMS 能在更短的時間內達到較低的 MSE 水準，這使得 NLMS 更適合用於實時回音消除等應用場景。
+
+\subsection{系統架構優勢}
+
+Scalart (1996) 的論文主要聚焦於單聲道的背景雜訊消除，並未討論 Room Echo 的處理。
+此報告在此基礎上進行了改進，將 NLMS 自適應濾波器串聯於 Wiener Filter 系統中。這使得系統不僅能消除加性雜訊，還能同時處理卷積性干擾，構建了更完整的通訊語音前端處理系統。
+
+\section{個人閱讀感想}
+本次專題實作讓我深刻體會到數位訊號處理中「理論」與「應用」的連結。過去在課堂上學習 Z 轉換時，零點與極點僅是數學上的概念，但透過本次實驗觀察 RIR 的 Z 平面圖，我親眼見證了真實聲學環境的「非最小相位」特性，這讓我真正理解了為何回音消除必須依賴自適應逼近法，而非單純的數學反運算。 此外，Wiener Filter 在不同雜訊條件下的表現差異，也讓我體會到演算法設計必須考量環境特性，不能一概而論。滑鼠聲的失敗案例提醒我，理論上的最佳解在實務中可能因環境變數而失效，這促使我思考如何改進演算法以適應更廣泛的場景。
+總體而言，這次專題不僅加深了我對數位訊號處理技術的理解，也提升了我解決實際問題的能力，為未來的研究奠定了堅實的基礎。
+
+\section{程式碼與資料取得}
+完整MATLAB程式碼、測試資料集皆已上傳至GitHub：\url{https://github.com/PrinceLego/DSP_final_report}
+        
+
+\printbibliography
+
+\end{document}
+
+
+
+
+
+\begin{comment}
+    
+#		                               `-+syhddmmmddhyo+:`                              
+#		                            .+hmmdddddddddddddddmmds/`      ``...`              
+#		                         `/hmddddddddddddddddddddddddmy++osyhyyyhhs.            
+#		                       `ommddddddddddddddddddddddddddddmmdys+++syhhh:           
+#		           .`         /mmddddddddddddddddddddddddddddddddmmhyyyyyyyyh/          
+#		       `:sdNy`      .ymddddddddddddddddddddddddddddddddddddmdhhhyyyyyh-         
+#		   `.+hmmmddmo     -mmddddddddddddddddddddddddddddddddddddddmmhhhhhhhh+         
+#		  odmmdddddddms` `+mmddddddddddddddddddddddddddddddddddddddddmmddhhhhh+         
+#		  ymdmmmmmmmmdmmdmmdddddddddddddmmddddddddddddddddddddddddddddmd:ydhhd:         
+#		  :Nmmmmmmmmmmmmmmddy+::+ydddms/:::/+osydmdddddddddddddddddddddN-`:+o:          
+#		   ymmmmmmmmmmmmmmdo.`.``/hmm/+hdd/``````-+ydmdddddddddddddddddmy               
+#		   .mmmmmmmmmmmmmmh:`-o+`:hm/`-o:.```````os/./ymddddddddddddddddN`              
+#		    /Nmmmmmmmmmmmmh:..::-od/``dMs````````/hNm:`-ymddddddddddddddN-              
+#		     sNmmmmmmmmmmmd+-:/-.`..`.hh:`...``:hh..:```:NdmmmmmmmdmddddN/              
+#		  `::/dmmmmmmmmmmmmdo:```./d/````-..:`-mdd.````.dmdmmmmmmmmmmmdmmy              
+#		./::-..+dmmmmmmmmmmh/````-dNms-```..``.+/`````-dmds/:-:ohmmmmmmmmN.             
+#		-/.``--`/dmmmdysydmy.````omNd+.-::-...-:os:..`-hs-``.``./hmmmmmmmmd.       .os` 
+#		/:---.`.`-/sy:```omy-````hddo` `s.``/NNNNo...`````-+o/``/dmmmmmmmmmms:..:+ymmN: 
+#		:/.``.``````-``./dNh/````syyyhshd-``:mNmy.````````.```./hmmmmmmmmmmmmmmmmmmmmmd 
+#		 .::-```...````+dNNNs-```//::/+ooosyhdds.``````-----:+ydmmmmmmmmmmmmmmmmmmmmmmN:
+#		   `:/````..``-shhdmms-``./::/:::::::+/``````.+dmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+#		     ./:-```.-oyyhyhhhy+.`.:/::::///:.````..:ymNNmmo:/ymmmmmmmmmmmmmmmmmmmmmmmmN
+#		       `:y:./yyyyyyyyhh///:..--:--.````..-/ymNNNNNy.``-hNNNNNmmmmmmmmmmmmmmNmh+-
+#		       `ymdyhyyyyyyhhy/---o+///:::::://oyhmNNNNNNNo```:osyho/---:ymmNNNNmho:`   
+#		       `+hhhhhyyyyhhs-----y--o/------:+hhhhhhhddds.````````..-..-+dNds+-`       
+#		         `.:+oossyyyy:---:ssoy:------+hyyyyhhyyys-``....```..--..//`            
+#		                    syysyysssho:-----ohyyyyhyhhyy/`````..``````-o.              
+#		                   `hssssssoyhhyo+++syyhhhhyyhyyh+:::-..-:::::::.               
+#		                   :hysssyo/yhhssyysssssyhyhhhyhdmmy....`                       
+#		                   shyyyyyyhhhhyyyyyyyyyyhh/-+syhdo`                            
+#		                  `hhhhhhhhhhhhhhhhhhhhhhhhy`                                   
+#		                   -:yhyyyysyhhyyyyyyyyyyyyh-                                   
+#		                     -hysssssyydsyyssssssssyh.                                  
+#		                      /hsysyyyyd-.+yyyssyyssyh-                                 
+#		          -/+oo++/-`   +hhyhhhso`  .ohyyyyyyhho:`   `-:/++++/:.                 
+#		       -+ooooooooooso+/ssss.yy:      `//+ds/oysss+ossoooooooo+os/.              
+#		    `:o+:/oooooooooooooooossyh:          oyyssooooooooooooooo+/:os+`            
+#		   -ssoooooooooooooooooosssssy+          .hyssssssooooooooooooooooss-           
+#		   /syysssssssssssssssyyyyyyyh-           shyyyysyyysssssssssssssssyy           
+#		     `-/+ossyyyysso+/:-./++//.             .---` `.-:/+oossssoo++/:-`   
+
+
+\end{comment}
+
+
+
+
+
+\begin{comment}
+#
+#                       _oo0oo_
+#                      o8888888o
+#                      88" . "88
+#                      (| -_- |)
+#                      0\  =  /0
+#                    ___/`---'\___
+#                  .' \\|     |# '.
+#                 / \\|||  :  |||# \
+#                / _||||| -:- |||||- \
+#               |   | \\\  -  #/ |   |
+#               | \_|  ''\---/''  |_/ |
+#               \  .-\__  '-'  ___/-. /
+#             ___'. .'  /--.--\  `. .'___
+#          ."" '<  `.___\_<|>_/___.' >' "".
+#         | | :  `- \`.;`\ _ /`;.`/ - ` : | |
+#         \  \ `_.   \_ __\ /__ _/   .-` /  /
+#     =====`-.____`.___ \_____/___.-`___.-'=====
+#                       `=---='
+#
+#
+#     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+#               佛祖保佑         永无BUG
+#
+#
+#
+\end{comment}
+
+
+
+
+
+\begin{comment}
+
+\section{\centering 緒論}
+\subsection{研究問題} 
+\subsubsection{違規車輛偵測}
+
+\cite{}
+
+%==============================圖片==============================
+
+\begin{figure}[htbp]
+    \centerline{\includegraphics[width=0.5\textwidth]{fig_1.png}}
+    \caption{ALD 製程最佳化流程示意圖}
+    \label{fig:fig_1} 
+    %如fig.\ref{fig:fig_1}所示
+    %\FloatBarrier   where to place the figure
+\end{figure}
+    
+%==============================數學公式==============================
+
+\begin{equation}
+    \begin{aligned}
+        ROI_{i}^{final}(x,y) = (ROI_{i}(x,y) \oplus B_{dil}) \ominus B_{ero}
+    \end{aligned}
+\label{eq:4}
+%Eq.(\ref{eq:4})
+\end{equation}
+    
+%==============================表格==============================
+
+\begin{table}[htbp]
+    \caption{Table Type Styles}
+
+    \begin{center}
+        \begin{tabular}{ll}
+            \toprule
+            \textbf{項目} & \textbf{規格} \\
+            \midrule
+            解析度  & 1280$\times$720 (HD) \\
+            幀率  & 30fps \\
+            水平視角 & 70.42$^\circ$ \\
+            垂直視角  & 43.3$^\circ$ \\
+            \bottomrule
+        \end{tabular}
+    \end{center}
+    \label{tab:1}
+    %(具體規格詳見表\ref{tab:MSI GP76 Leopard})
+\end{table}
+
+
+%==============================條列==============================
+
+%無序條列
+
+\begin{itemize}
+    \item 第一項
+    \item 第二項
+    \item 第三項
+\end{itemize}
+
+%有序條列
+
+\begin{enumerate}
+    \item 第一項
+    \item 第二項
+    \item 第三項
+\end{enumerate}
+
+
+\end{comment}
